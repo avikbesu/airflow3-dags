@@ -8,11 +8,15 @@ import pytest
 from airflow.models import DagBag
 
 EXPECTED_DAG_IDS = {
+    # utility
     "1_k8s_job_xcom_bash_demo",
     "2_monitor_dag",
     "3_xcom_multi_operator_demo",
     "4_print_all_variables",
     "5_print_a_variable",
+    # demo
+    "airflow_basics_downtreams",
+    "airflow_basics_trigger_rules",
 }
 
 

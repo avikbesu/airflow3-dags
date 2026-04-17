@@ -21,7 +21,7 @@ def _load_module(name: str, filepath: str):
     return mod
 
 
-DAG_DIR = os.path.join(os.path.dirname(__file__), "..", "dags")
+DAG_DIR = os.path.join(os.path.dirname(__file__), "..", "dags", "utility")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

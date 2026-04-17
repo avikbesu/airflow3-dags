@@ -6,11 +6,15 @@ A collection of reference DAGs for **Apache Airflow 3**, covering XCom patterns,
 
 ```
 dags/
-  1_push_xcom_from_kube_pod_op.py   KubernetesJobOperator XCom demo
-  2_log_other_dag_status.py         Monitor another DAG's run state
-  3_xcom_multi_operator_demo.py     XCom across BashOperator + @task
-  4_print_all_variables.py          List all Variables via REST API v2
-  5_print_a_variable.py             Fetch specific Variables via Task SDK
+  utility/
+    1_push_xcom_from_kube_pod_op.py   KubernetesJobOperator XCom demo
+    2_log_other_dag_status.py         Monitor another DAG's run state
+    3_xcom_multi_operator_demo.py     XCom across BashOperator + @task
+    4_print_all_variables.py          List all Variables via REST API v2
+    5_print_a_variable.py             Fetch specific Variables via Task SDK
+  demo/
+    a1_airflow_basics_downtreams.py   cross_downstream / chain dependency demos
+    a2_airflow_basics_trigger_rules.py  TriggerRule variants demo
 tests/
   conftest.py                       Session-scoped Airflow home + SQLite DB setup
   test_1_dag_integrity.py           Layer 1 — DagBag parse/import tests
