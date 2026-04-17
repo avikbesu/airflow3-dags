@@ -11,6 +11,15 @@ dags/
   3_xcom_multi_operator_demo.py     XCom across BashOperator + @task
   4_print_all_variables.py          List all Variables via REST API v2
   5_print_a_variable.py             Fetch specific Variables via Task SDK
+tests/
+  conftest.py                       Session-scoped Airflow home + SQLite DB setup
+  test_1_dag_integrity.py           Layer 1 — DagBag parse/import tests
+  test_2_unit_functions.py          Layer 2 — Unit tests for pure task functions
+  test_3_task_level.py              Layer 3 — airflow tasks test (per-task CLI)
+  test_4_dag_runs.py                Layer 4 — airflow dags test (full DAG run)
+.pre-commit-config.yaml             Pre-commit hook (runs layers 1 & 2 on every commit)
+pytest.ini                          Pytest configuration
+requirements-test.txt               Test dependencies
 docs/                               Additional documentation (WIP)
 ```
 
@@ -64,36 +73,30 @@ Fetches a known list of Variables via `Variable.get()` (Task SDK). Automatically
 
 ## Testing
 
-### Test layout
-
-```
-tests/
-  conftest.py                  Session-scoped Airflow home + SQLite DB setup
-  test_1_dag_integrity.py      Layer 1 — DagBag parse/import tests
-  test_2_unit_functions.py     Layer 2 — Unit tests for pure task functions
-  test_3_task_level.py         Layer 3 — airflow tasks test (per-task CLI)
-  test_4_dag_runs.py           Layer 4 — airflow dags test (full DAG run)
-```
-
 ### Install test dependencies
 
 ```bash
 pip install -r requirements-test.txt
 ```
 
-### Run all tests
+### Pre-commit hook
+
+Layers 1 & 2 run automatically on every `git commit` via [pre-commit](https://pre-commit.com).
 
 ```bash
-pytest
+pre-commit install   # one-time setup per clone
 ```
 
-### Run by layer
+After that, commits are blocked if any parse or unit test fails.
+
+### Run manually
 
 ```bash
-pytest tests/test_1_dag_integrity.py   # parse only — no Airflow running needed
-pytest tests/test_2_unit_functions.py  # pure Python — no Airflow running needed
-pytest tests/test_3_task_level.py      # needs airflow CLI + DB
-pytest tests/test_4_dag_runs.py        # needs airflow CLI + DB
+pytest                                 # all layers
+pytest tests/test_1_dag_integrity.py  # parse only     — no Airflow needed (~15s)
+pytest tests/test_2_unit_functions.py # unit only      — no Airflow needed (~1s)
+pytest tests/test_3_task_level.py     # per-task CLI   — needs airflow CLI + SQLite
+pytest tests/test_4_dag_runs.py       # full DAG runs  — needs airflow CLI + SQLite
 ```
 
 ### What each layer covers
