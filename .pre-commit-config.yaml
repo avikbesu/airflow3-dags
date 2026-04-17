@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pytest-fast
+        name: pytest (dag integrity + unit)
+        entry: python3 -m pytest tests/test_1_dag_integrity.py tests/test_2_unit_functions.py --tb=short -q
+        language: system
+        pass_filenames: false
+        always_run: true
