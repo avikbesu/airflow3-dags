@@ -14,6 +14,12 @@ EXPECTED_DAG_IDS = {
     "3_xcom_multi_operator_demo",
     "4_print_all_variables",
     "5_print_a_variable",
+    "6_setup_variables_connections",
+    "7_validate_k8s_cluster_status",
+    "8_cleanup_k8s_jobs_pods",
+    "9_manage_pvc",
+    "10_list_active_dags",
+    "11_xcom_api_sdk_demo",
     # demo
     "airflow_basics_downtreams",
     "airflow_basics_trigger_rules",
