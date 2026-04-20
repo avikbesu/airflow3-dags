@@ -16,7 +16,7 @@ from airflow.sdk import DAG
 from airflow.sdk.bases.operator import chain, cross_downstream
 from airflow.providers.standard.operators.empty import EmptyOperator
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.task.trigger_rule import TriggerRule
+from airflow.utils.trigger_rule import TriggerRule
 from airflow.sdk import TaskGroup
 
 # ---------------------------------------------------------------------------
