@@ -10,35 +10,19 @@ DAG run:
 
 Uses the Airflow 3 REST API v2 — ORM access is blocked inside tasks.
 
-Auth: same pattern as DAG 4 (Airflow Connection `airflow_api` or env vars
-AIRFLOW_API_BASE_URL / AIRFLOW_API_USER / AIRFLOW_API_PASSWORD).
+Auth: Airflow 3.x uses JWT Bearer tokens. Credentials are resolved from an
+Airflow Connection (`airflow_api`) or env vars
+AIRFLOW_API_BASE_URL / AIRFLOW_API_USER / AIRFLOW_API_PASSWORD.
+A JWT is obtained via POST /auth/token before any API call is made.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 
 from airflow.sdk import dag, task
 
-_CONN_ID = "airflow_api"
-_DEFAULT_API_URL = "http://localhost:8080"
-
-
-def _resolve_auth():
-    from requests.auth import HTTPBasicAuth
-    try:
-        from airflow.hooks.base import BaseHook
-        conn = BaseHook.get_connection(_CONN_ID)
-        base_url = (conn.host or _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(conn.login or "", conn.password or "")
-    except Exception:
-        base_url = os.getenv("AIRFLOW_API_BASE_URL", _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(
-            os.getenv("AIRFLOW_API_USER", "admin"),
-            os.getenv("AIRFLOW_API_PASSWORD", "admin"),
-        )
-    return base_url, auth
+from utility.airflow_api_client import get_session
 
 
 def _duration_seconds(start: str | None, end: str | None) -> float | None:
@@ -70,15 +54,12 @@ def list_active_dags():
     @task(task_id="fetch_active_dags")
     def fetch_active_dags() -> list:
         """GET /api/v2/dags?paused=false — paginated."""
-        import requests
-
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         out: list = []
         limit, offset = 100, 0
         while True:
-            r = requests.get(
+            r = session.get(
                 f"{base_url}/api/v2/dags",
-                auth=auth,
                 params={"limit": limit, "offset": offset, "paused": "false"},
                 timeout=30,
             )
@@ -98,16 +79,13 @@ def list_active_dags():
         For each DAG, fetch its latest run via
         GET /api/v2/dags/{dag_id}/dagRuns?order_by=-start_date&limit=1
         """
-        import requests
-
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         rows: list = []
 
         for d in dags:
             dag_id = d.get("dag_id")
-            r = requests.get(
+            r = session.get(
                 f"{base_url}/api/v2/dags/{dag_id}/dagRuns",
-                auth=auth,
                 params={"limit": 1, "order_by": "-start_date"},
                 timeout=30,
             )

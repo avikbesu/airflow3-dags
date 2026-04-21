@@ -24,13 +24,11 @@ Auth setup (pick one):
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 
 from airflow.sdk import dag, task
 
-_CONN_ID = "airflow_api"
-_DEFAULT_API_URL = "http://localhost:8080"
+from utility.airflow_api_client import get_session
 
 _LOOKBACK_DAYS = 14   # days of task instance history to scan
 _MIN_RETRIES = 1      # minimum retry count for a task to be included in the report
@@ -44,22 +42,6 @@ _FAILURE_CATEGORIES: dict[str, list[str]] = {
     "resource_constraint": ["pool", "slot", "quota", "limit", "memory", "cpu", "resource"],
     "transient_error": ["transient", "retry", "flaky", "network", "connection", "timeout", "http"],
 }
-
-
-def _resolve_auth() -> tuple[str, object]:
-    from requests.auth import HTTPBasicAuth
-    try:
-        from airflow.hooks.base import BaseHook
-        conn = BaseHook.get_connection(_CONN_ID)
-        base_url = (conn.host or _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(conn.login or "", conn.password or "")
-    except Exception:
-        base_url = os.getenv("AIRFLOW_API_BASE_URL", _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(
-            os.getenv("AIRFLOW_API_USER", "admin"),
-            os.getenv("AIRFLOW_API_PASSWORD", "admin"),
-        )
-    return base_url, auth
 
 
 def _infer_category(task_id: str, operator: str) -> str:
@@ -125,19 +107,16 @@ def task_retry_analyzer():
         Fetch task instances with try_number > 1 from the last _LOOKBACK_DAYS.
         Uses GET /api/v2/dags/~/dagRuns/~/taskInstances (wildcard endpoint).
         """
-        import requests
-
         cutoff = (datetime.now(timezone.utc) - timedelta(days=_LOOKBACK_DAYS)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         all_instances: list[dict] = []
         limit, offset = 100, 0
 
         while True:
-            resp = requests.get(
+            resp = session.get(
                 f"{base_url}/api/v2/dags/~/dagRuns/~/taskInstances",
-                auth=auth,
                 params={
                     "limit": limit,
                     "offset": offset,

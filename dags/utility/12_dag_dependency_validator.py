@@ -20,29 +20,11 @@ Auth setup (pick one):
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime
 
 from airflow.sdk import dag, task
 
-_CONN_ID = "airflow_api"
-_DEFAULT_API_URL = "http://localhost:8080"
-
-
-def _resolve_auth() -> tuple[str, object]:
-    from requests.auth import HTTPBasicAuth
-    try:
-        from airflow.hooks.base import BaseHook
-        conn = BaseHook.get_connection(_CONN_ID)
-        base_url = (conn.host or _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(conn.login or "", conn.password or "")
-    except Exception:
-        base_url = os.getenv("AIRFLOW_API_BASE_URL", _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(
-            os.getenv("AIRFLOW_API_USER", "admin"),
-            os.getenv("AIRFLOW_API_PASSWORD", "admin"),
-        )
-    return base_url, auth
+from utility.airflow_api_client import get_session
 
 
 def _detect_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
@@ -112,16 +94,13 @@ def dag_dependency_validator():
     @task(task_id="fetch_all_dags")
     def fetch_all_dags() -> list[str]:
         """Return all dag_ids from the metastore via paginated REST API."""
-        import requests
-
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         dag_ids: list[str] = []
         limit, offset = 100, 0
 
         while True:
-            resp = requests.get(
+            resp = session.get(
                 f"{base_url}/api/v2/dags",
-                auth=auth,
                 params={"limit": limit, "offset": offset},
                 timeout=30,
             )
@@ -143,12 +122,9 @@ def dag_dependency_validator():
         Fetch the full dependency graph from GET /api/v2/dag_dependencies.
         Returns {dag_id: {upstream: [...], downstream: [...]}} for every known DAG.
         """
-        import requests
-
-        base_url, auth = _resolve_auth()
-        resp = requests.get(
+        base_url, session = get_session()
+        resp = session.get(
             f"{base_url}/api/v2/dag_dependencies",
-            auth=auth,
             timeout=30,
         )
         resp.raise_for_status()

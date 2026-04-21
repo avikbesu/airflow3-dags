@@ -44,25 +44,9 @@ from datetime import datetime
 
 from airflow.sdk import dag, get_current_context, task
 
-_CONN_ID = "airflow_api"
-_DEFAULT_API_URL = "http://localhost:8080"
+from utility.airflow_api_client import get_session
+
 _DEFAULT_YAML_VAR = "setup_config_yaml_path"
-
-
-def _resolve_auth():
-    from requests.auth import HTTPBasicAuth
-    try:
-        from airflow.hooks.base import BaseHook
-        conn = BaseHook.get_connection(_CONN_ID)
-        base_url = (conn.host or _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(conn.login or "", conn.password or "")
-    except Exception:
-        base_url = os.getenv("AIRFLOW_API_BASE_URL", _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(
-            os.getenv("AIRFLOW_API_USER", "admin"),
-            os.getenv("AIRFLOW_API_PASSWORD", "admin"),
-        )
-    return base_url, auth
 
 
 @dag(
@@ -116,9 +100,7 @@ def setup_variables_connections():
     @task(task_id="seed_variables")
     def seed_variables(config: dict) -> dict:
         """For each variable in YAML: skip if exists, else POST to REST API."""
-        import requests
-
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         created, skipped, failed = [], [], []
 
         for entry in config.get("variables") or []:
@@ -126,9 +108,7 @@ def setup_variables_connections():
             if not key:
                 continue
 
-            resp = requests.get(
-                f"{base_url}/api/v2/variables/{key}", auth=auth, timeout=30,
-            )
+            resp = session.get(f"{base_url}/api/v2/variables/{key}", timeout=30)
             if resp.status_code == 200:
                 print(f"[SKIP] variable already exists: {key}")
                 skipped.append(key)
@@ -139,9 +119,7 @@ def setup_variables_connections():
                 "value": str(entry.get("value", "")),
                 "description": entry.get("description", ""),
             }
-            create = requests.post(
-                f"{base_url}/api/v2/variables", auth=auth, json=payload, timeout=30,
-            )
+            create = session.post(f"{base_url}/api/v2/variables", json=payload, timeout=30)
             if create.status_code in (200, 201):
                 print(f"[CREATE] variable: {key}")
                 created.append(key)
@@ -154,9 +132,7 @@ def setup_variables_connections():
     @task(task_id="seed_connections")
     def seed_connections(config: dict) -> dict:
         """For each connection in YAML: skip if exists, else POST to REST API."""
-        import requests
-
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         created, skipped, failed = [], [], []
 
         for entry in config.get("connections") or []:
@@ -164,9 +140,7 @@ def setup_variables_connections():
             if not conn_id:
                 continue
 
-            resp = requests.get(
-                f"{base_url}/api/v2/connections/{conn_id}", auth=auth, timeout=30,
-            )
+            resp = session.get(f"{base_url}/api/v2/connections/{conn_id}", timeout=30)
             if resp.status_code == 200:
                 print(f"[SKIP] connection already exists: {conn_id}")
                 skipped.append(conn_id)
@@ -185,9 +159,7 @@ def setup_variables_connections():
             }
             payload = {k: v for k, v in payload.items() if v is not None}
 
-            create = requests.post(
-                f"{base_url}/api/v2/connections", auth=auth, json=payload, timeout=30,
-            )
+            create = session.post(f"{base_url}/api/v2/connections", json=payload, timeout=30)
             if create.status_code in (200, 201):
                 print(f"[CREATE] connection: {conn_id}")
                 created.append(conn_id)

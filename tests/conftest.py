@@ -14,6 +14,11 @@ import pytest
 # Absolute path to the repo's dags/ directory
 _DAGS_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dags"))
 
+# Mirror BundleDagBag behaviour: add the dags folder to sys.path so DAG files
+# can import shared modules from the dags/ package tree (e.g. utility.airflow_api_client).
+if _DAGS_FOLDER not in sys.path:
+    sys.path.insert(0, _DAGS_FOLDER)
+
 
 # ── point Airflow at a throw-away home before any airflow import ──────────────
 @pytest.fixture(scope="session", autouse=True)

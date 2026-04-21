@@ -21,35 +21,17 @@ Auth setup (pick one):
 """
 from __future__ import annotations
 
-import os
 from datetime import datetime, timedelta, timezone
 
 from airflow.sdk import dag, task
 
-_CONN_ID = "airflow_api"
-_DEFAULT_API_URL = "http://localhost:8080"
+from utility.airflow_api_client import get_session
 
 _LOOKBACK_DAYS = 7       # days of run history to scan
 _SLA_MINUTES = 60        # SLA threshold — runs longer than this are flagged
 _TOP_SLOW_TASKS = 5      # max slow tasks to attach per breaching run
 _OUTPUT_FORMAT = "json"  # "json" or "csv"
 _OUTPUT_DIR = "/tmp"     # directory for the exported report
-
-
-def _resolve_auth() -> tuple[str, object]:
-    from requests.auth import HTTPBasicAuth
-    try:
-        from airflow.hooks.base import BaseHook
-        conn = BaseHook.get_connection(_CONN_ID)
-        base_url = (conn.host or _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(conn.login or "", conn.password or "")
-    except Exception:
-        base_url = os.getenv("AIRFLOW_API_BASE_URL", _DEFAULT_API_URL).rstrip("/")
-        auth = HTTPBasicAuth(
-            os.getenv("AIRFLOW_API_USER", "admin"),
-            os.getenv("AIRFLOW_API_PASSWORD", "admin"),
-        )
-    return base_url, auth
 
 
 def _duration_seconds(start: str | None, end: str | None) -> float | None:
@@ -110,19 +92,16 @@ def sla_breach_reporter():
     @task(task_id="fetch_dag_runs")
     def fetch_dag_runs() -> list[dict]:
         """Fetch all completed DAG runs within _LOOKBACK_DAYS via paginated REST API."""
-        import requests
-
         cutoff = (datetime.now(timezone.utc) - timedelta(days=_LOOKBACK_DAYS)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         all_runs: list[dict] = []
         limit, offset = 100, 0
 
         while True:
-            resp = requests.get(
+            resp = session.get(
                 f"{base_url}/api/v2/dags/~/dagRuns",
-                auth=auth,
                 params={
                     "limit": limit,
                     "offset": offset,
@@ -172,22 +151,19 @@ def sla_breach_reporter():
         For each breaching run, attach the top _TOP_SLOW_TASKS slowest task instances
         fetched from GET /api/v2/dags/{dag_id}/dagRuns/{run_id}/taskInstances.
         """
-        import requests
-
         if not breaches:
             print("[INFO] No breaches — skipping slow task fetch.")
             return []
 
-        base_url, auth = _resolve_auth()
+        base_url, session = get_session()
         enriched: list[dict] = []
 
         for breach in breaches:
             dag_id = breach["dag_id"]
             run_id = breach["run_id"]
             try:
-                resp = requests.get(
+                resp = session.get(
                     f"{base_url}/api/v2/dags/{dag_id}/dagRuns/{run_id}/taskInstances",
-                    auth=auth,
                     timeout=30,
                 )
                 resp.raise_for_status()

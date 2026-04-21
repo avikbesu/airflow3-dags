@@ -25,14 +25,13 @@ Auth setup (pick one):
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 
 from airflow.sdk import dag, task
 
+from utility.airflow_api_client import get_session
+
 _SENSITIVE_PATTERNS = ("password", "secret", "token", "key", "api", "pwd", "credential")
-_DEFAULT_API_URL = "http://localhost:8080"
-_CONN_ID = "airflow_api"  # Change if your connection has a different id
 
 
 def _is_sensitive(var_key: str) -> bool:
@@ -87,31 +86,15 @@ def print_all_variables():
         Airflow 3 REST API paginates at 100 items by default.
         We loop until all pages are exhausted.
         """
-        import requests
-        from requests.auth import HTTPBasicAuth
+        base_url, session = get_session()
 
-        # ── Resolve base URL ──────────────────────────────────────────────
-        try:
-            from airflow.hooks.base import BaseHook
-            conn = BaseHook.get_connection(_CONN_ID)
-            base_url = (conn.host or _DEFAULT_API_URL).rstrip("/")
-            auth = HTTPBasicAuth(conn.login or "", conn.password or "")
-        except Exception:
-            base_url = os.getenv("AIRFLOW_API_BASE_URL", _DEFAULT_API_URL).rstrip("/")
-            auth = HTTPBasicAuth(
-                os.getenv("AIRFLOW_API_USER", "admin"),
-                os.getenv("AIRFLOW_API_PASSWORD", "admin"),
-            )
-
-        # ── Paginated fetch ───────────────────────────────────────────────
         all_vars: list[dict] = []
         limit = 100
         offset = 0
 
         while True:
-            resp = requests.get(
+            resp = session.get(
                 f"{base_url}/api/v2/variables",
-                auth=auth,
                 params={"limit": limit, "offset": offset},
                 timeout=30,
             )
