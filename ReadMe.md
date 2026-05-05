@@ -6,6 +6,11 @@ A collection of reference DAGs for **Apache Airflow 3**, covering XCom patterns,
 
 ```
 dags/
+  kubernetes/
+    k1_kubepod_operator.py            KubernetesPodOperator — 5 pod patterns
+    k2_kubejob_advanced.py            KubernetesJobOperator — advanced Job patterns
+    k3_dynamic_k8s_fan_out.py         Dynamic task mapping fan-out with K8s Jobs
+    k4_task_kubernetes_decorator.py   @task.kubernetes — Python function in a K8s pod
   utility/
     1_push_xcom_from_kube_pod_op.py   KubernetesJobOperator XCom demo
     2_log_other_dag_status.py         Monitor another DAG's run state
@@ -39,6 +44,95 @@ docs/                               Additional documentation (WIP)
 ```
 
 ## DAGs
+
+---
+
+## Kubernetes execution methods (`dags/kubernetes/`)
+
+Four DAGs showing every major way to run Airflow workloads on Kubernetes.
+
+### k1 — k1_kubepod_operator
+Runs workloads as bare **Kubernetes Pods** via `KubernetesPodOperator`.  Airflow owns the full pod lifecycle; K8s does not provide Job-level retry.
+
+Five patterns run in parallel:
+
+| Task | Pattern |
+|------|---------|
+| `basic_pod` | Minimal alpine container — image, command, env vars |
+| `env_from_config` | Import all keys from a ConfigMap + a single Secret key as env vars |
+| `volume_mount_pod` | emptyDir volume — write and read within the same pod |
+| `init_container_pod` | Init container seeds a shared emptyDir before the main container starts |
+| `resource_profile_pod` | CPU/memory requests + nodeSelector + toleration for batch nodes |
+
+**Tags:** `type=demo`, `exec=kube`, `subtype=k8s-pod`
+
+---
+
+### k2 — k2_kubejob_advanced
+Advanced **Kubernetes Job** patterns via `KubernetesJobOperator`.  Creates a proper K8s `Job` resource with at-least-once guarantees, pod-level retry, and completion tracking.
+
+Four patterns (run sequentially):
+
+| Task | Pattern |
+|------|---------|
+| `ttl_backoff_job` | `ttlSecondsAfterFinished` + `backoffLimit` + `activeDeadlineSeconds` |
+| `parallel_workers_job` | `completions=6 / parallelism=3` with Indexed completion mode (`JOB_COMPLETION_INDEX`) |
+| `init_container_job` | Init container pre-fetches a CSV via shared emptyDir; main container processes it |
+| `priority_annotated_job` | PriorityClass for scheduling precedence + Prometheus/Datadog pod annotations |
+
+**Tags:** `type=demo`, `exec=kube`, `subtype=k8s-job`
+
+---
+
+### k3 — k3_dynamic_k8s_fan_out
+**Dynamic task mapping** — generates a list of work items at runtime and spawns one `KubernetesJobOperator` per item with `.partial().expand()`.  No tasks are pre-defined at parse time.
+
+```
+generate_shards (@task)
+        ↓
+process_shard.expand(arguments=shard_args)   ← N K8s Jobs in parallel
+        ↓
+aggregate_results (@task)
+```
+
+Demonstrates `max_active_tis_per_dagrun` to cap concurrent K8s Jobs, `do_xcom_push=True` to collect per-shard results, and XCom list unpacking in the aggregator.
+
+**Tags:** `type=demo`, `exec=kube`, `subtype=k8s-fan-out`
+
+---
+
+### k4 — k4_task_kubernetes_decorator
+**`@task.kubernetes` decorator** — write a plain Python function and run it inside a K8s pod with no custom Dockerfile.  Airflow serialises the function, executes it in the pod, and pulls the return value back as XCom.
+
+```
+fetch_pipeline_config (@task — Airflow worker)
+        ↓
+run_feature_engineering (@task.kubernetes — K8s pod, 512Mi / 1 CPU)
+        ↓
+run_model_scoring       (@task.kubernetes — K8s pod, 512Mi / 2 CPU)
+        ↓
+notify_completion (@task — Airflow worker)
+```
+
+Each pod can have different resource budgets, node selectors, and env vars — useful for routing heavy ML workloads to GPU or compute-optimised nodes.
+
+**Tags:** `type=demo`, `exec=kube`, `subtype=k8s-decorator`
+
+---
+
+## Kubernetes execution method comparison
+
+| Method | K8s resource | Retry owner | Best for |
+|--------|-------------|-------------|----------|
+| `KubernetesPodOperator` | Pod | Airflow | Simple one-shot tasks, sidecar containers |
+| `KubernetesJobOperator` | Job | Airflow + K8s | Batch jobs, parallel completions, audit trail |
+| `.partial().expand()` + `KubernetesJobOperator` | Job × N | Airflow + K8s | Runtime fan-out over N shards/datasets |
+| `@task.kubernetes` | Pod | Airflow | Python functions needing K8s isolation |
+| `KubernetesExecutor` *(infra-level)* | Pod per task | Airflow | Every task runs in its own pod automatically |
+
+> **KubernetesExecutor** is configured in `airflow.cfg` (`executor = KubernetesExecutor`), not in DAG code.  It makes every Airflow task spin up its own pod — no operator changes required.
+
+---
 
 ### 1 — k8s_job_xcom_bash_demo
 Runs an alpine bash container via `KubernetesJobOperator`, writes a value to the XCom sidecar path, then reads it in a downstream `@task`.
