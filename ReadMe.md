@@ -120,6 +120,123 @@ Each pod can have different resource budgets, node selectors, and env vars — u
 
 ---
 
+## Airflow 3 Assets (`dags/assets/`)
+
+Assets (formerly Datasets in Airflow 2.x) enable **data-aware scheduling**: a DAG
+declares what data it produces (`outlets`) and what it consumes (`inlets`), and
+Airflow automatically triggers downstream DAGs when their input assets are updated.
+
+### Shared definitions — `asset_defs.py`
+Central module defining all `Asset` and `AssetAlias` objects.  Both producer and
+consumer DAGs import from here so the URI identity stays in one place.
+
+| Symbol | URI | Tier |
+|--------|-----|------|
+| `asset_orders_raw` | `s3://my-data-lake/raw/orders.parquet` | bronze |
+| `asset_customers_raw` | `s3://my-data-lake/raw/customers.parquet` | bronze |
+| `asset_orders_clean` | `s3://my-data-lake/clean/orders.parquet` | silver |
+| `asset_daily_report` | `s3://my-data-lake/reports/daily_summary.parquet` | gold |
+| `alias_bronze_ingestion` | *(AssetAlias)* | — |
+
+---
+
+### a1 — `a1_asset_producers` — all production patterns
+How a task declares that it produced data:
+
+| Task | Pattern |
+|------|---------|
+| `ingest_orders_raw` | `@task(outlets=[asset])` — minimal, no metadata |
+| `ingest_customers` | `BashOperator(outlets=[asset])` — any operator can produce assets |
+| `backfill_all_bronze` | `outlets=[asset_a, asset_b]` — one task, multiple asset events |
+| `clean_and_enrich` | `outlet_events[asset].extra = {...}` — attach rich metadata to the event |
+| `build_daily_report` | `raise AirflowSkipException` — quality gate: suppresses the asset event |
+
+**Tags:** `type=demo`, `exec=compose`, `exec=kube`, `subtype=assets`
+
+---
+
+### a2 — `a2_asset_consumers` — all scheduling patterns
+Five DAGs, one per schedule variant:
+
+| DAG | Schedule | Triggers when |
+|-----|----------|---------------|
+| `a2a_single_asset_schedule` | `schedule=asset_orders_clean` | that one asset updates |
+| `a2b_and_all_assets` | `schedule=[asset_a, asset_b]` | ALL listed assets update |
+| `a2c_or_any_asset` | `schedule=asset_a \| asset_b` | EITHER asset updates |
+| `a2d_complex_asset_expr` | `schedule=(a & b) \| c` | boolean combination |
+| `a2e_asset_or_time_schedule` | `AssetOrTimeSchedule(cron, assets)` | asset update OR cron, first wins |
+
+All five tasks use `inlets=` to read the `extra=` metadata attached by the producer.
+
+**Tags:** `type=demo`, `exec=compose`, `exec=kube`, `subtype=assets`
+
+---
+
+### a3 — `a3_asset_alias` — AssetAlias decoupling (2 DAGs)
+`AssetAlias` lets producers publish to a *named alias* and consumers schedule on the
+alias — completely decoupled from concrete URIs.
+
+| DAG | Role |
+|-----|------|
+| `a3_alias_producer` | Resolves alias → multiple concrete assets at runtime; also shows dynamic URI from conf |
+| `a3_alias_consumer` | `schedule=alias_bronze_ingestion` — fires on any asset published under the alias |
+
+**Tags:** `type=demo`, `exec=compose`, `exec=kube`, `subtype=assets`
+
+---
+
+### a4 — `a4_asset_events_branching` — event metadata + decision making
+Reads `inlet_events` metadata and routes execution via `@task.branch`:
+
+```
+inspect_incoming_event  (staleness SLA + multi-event best-pick)
+         ↓
+   route_by_quality  (@task.branch on quality_score)
+         ↓
+   ┌─ full_enrichment      (score ≥ 0.95 → gold → emits daily_report asset)
+   ├─ light_cleanse        (score ≥ 0.80 → silver → no asset event)
+   └─ quarantine_and_alert (score < 0.80 → alert → no asset event)
+```
+
+**Tags:** `type=demo`, `exec=compose`, `exec=kube`, `subtype=assets`
+
+---
+
+### a5 — `a5_asset_lifecycle_api` — full lifecycle via REST API
+Manages assets through the Airflow v2 REST API:
+
+| Task | API call | Purpose |
+|------|----------|---------|
+| `list_all_assets` | `GET /api/v2/assets` | Discover all assets, producers, consumers |
+| `query_asset_events` | `GET /api/v2/assets/events` | Audit event history with metadata |
+| `materialize_asset_event` | `POST /api/v2/assets/events` | External system signals data-ready |
+| `archive_asset` | `DELETE /api/v2/assets/<id>` | Remove asset from metastore (data untouched) |
+
+Supports `dry_run=true` (default) to preview without writes.
+
+**Tags:** `type=utility`, `exec=compose`, `exec=kube`, `subtype=assets`
+
+---
+
+### Asset concept quick reference
+
+| Concept | Code | Description |
+|---------|------|-------------|
+| Define an asset | `Asset(uri=..., name=..., extra={})` | Logical identifier; URI does not need to be reachable |
+| Produce | `@task(outlets=[asset])` | Task emits event on success |
+| Produce with metadata | `outlet_events[asset].extra = {...}` | Attach structured data to the event |
+| Suppress event | `raise AirflowSkipException` | Task skipped = no event = no downstream trigger |
+| Consume (schedule) | `schedule=asset` or `schedule=[a, b]` | Data-aware DAG trigger |
+| OR schedule | `schedule=a \| b` | Either asset triggers |
+| AND schedule | `schedule=a & b` or `schedule=[a, b]` | All assets must update |
+| Time OR asset | `AssetOrTimeSchedule(timetable, assets)` | First condition wins |
+| Read event data | `@task(inlets=[asset])` + `inlet_events[asset]` | Access extra= from producer |
+| Alias (decouple) | `AssetAlias(name=...)` | Producer resolves URI at runtime |
+| External trigger | `POST /api/v2/assets/events` | Signal from non-Airflow systems |
+| Delete | `DELETE /api/v2/assets/<id>` | Remove from metastore; data unaffected |
+
+---
+
 ## Kubernetes execution method comparison
 
 | Method | K8s resource | Retry owner | Best for |
